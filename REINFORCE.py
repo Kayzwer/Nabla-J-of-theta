@@ -43,7 +43,7 @@ class Agent:
     def choose_action_train(self, state: np.ndarray) -> int:
         action_probs = torch.distributions.Categorical(
             F.softmax(self.network.forward(
-                torch.as_tensor(state, dtype=torch.float32))))
+                torch.as_tensor(state, dtype=torch.float32)), dim=-1))
         action = action_probs.sample()
         self.action_memory.append(action_probs.log_prob(action))
         return action.item()
@@ -99,3 +99,5 @@ if __name__ == "__main__":
             score += reward
         total_loss = agent.train()
         print(f"Iteration: {i + 1}, Score: {score}, Total Loss: {total_loss}")
+
+    torch.save(agent.network.state_dict(), "REINFORCE cartpole.pt")
