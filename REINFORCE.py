@@ -53,7 +53,7 @@ class Agent:
 
     def choose_action_test(self, state: np.ndarray) -> int:
         return self.network.forward(
-            torch.as_tensor(state, dtype=torch.float32)).argmax()
+            torch.as_tensor(state, dtype=torch.float32)).argmax().item()
 
     def train(self) -> float:
         self.network.optimizer.zero_grad()
