@@ -64,18 +64,16 @@ class Agent:
             g_sum = self.reward_memory[i] + self.gamma * g_sum
             g[i] = g_sum
 
-        total_loss = 0.0
         loss = 0.0
         for g_i, log_prob in zip(g, self.action_memory):
             loss += -g_i * log_prob
-            total_loss += loss
         loss.backward()
         self.network.optimizer.step()
 
         self.action_memory.clear()
         self.reward_memory.clear()
 
-        return total_loss
+        return loss.item()
 
 
 if __name__ == "__main__":
