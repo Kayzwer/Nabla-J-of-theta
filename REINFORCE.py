@@ -59,14 +59,10 @@ class Agent:
         self.network.optimizer.zero_grad()
         g = np.zeros_like(self.reward_memory, dtype=np.float32)
         T = len(g)
-        for t in range(T):
-            g_sum = 0.0
-            n = 0
-            for k in range(t, T):
-                g_sum += self.reward_memory[k] * self.gamma ** n
-                n += 1
-            g[t] = g_sum
-        g = torch.as_tensor(g, dtype=torch.float32)
+        g_sum = 0.0
+        for i in range(T - 1, -1, -1):
+            g_sum = self.reward_memory[i] + self.gamma * g_sum
+            g[i] = g_sum
 
         total_loss = 0.0
         loss = 0.0
@@ -87,7 +83,7 @@ if __name__ == "__main__":
     agent = Agent(env.observation_space.shape[0], env.action_space.n, 0.001,
                   0.99)
 
-    iteration = 100
+    iteration = 1000
     for i in range(iteration):
         state = env.reset()
         done = False
