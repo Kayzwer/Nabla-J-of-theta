@@ -64,9 +64,9 @@ class Agent:
             g_sum = self.reward_memory[i] + self.gamma * g_sum
             g[i] = g_sum
 
-        loss = 0.0
-        for g_i, log_prob in zip(g, self.action_memory):
-            loss += -g_i * log_prob
+        loss = -torch.sum(torch.as_tensor(g, dtype=torch.float32) *
+                          torch.as_tensor(self.action_memory,
+                                          dtype=torch.float32))
         loss.backward()
         self.network.optimizer.step()
 
@@ -92,6 +92,7 @@ if __name__ == "__main__":
             agent.store_reward(reward)
             score += reward
         total_loss = agent.train()
+        break
         print(f"Iteration: {i + 1}, Score: {score}, Total Loss: {total_loss}")
 
     torch.save(agent.network.state_dict(), "REINFORCE cartpole.pt")
