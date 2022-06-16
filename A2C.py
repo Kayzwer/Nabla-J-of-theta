@@ -65,7 +65,7 @@ class Agent:
         self.entropy_weight = entropy_weight
 
     def choose_action(self, state: np.ndarray, is_train: bool) -> np.ndarray:
-        state = torch.FloatTensor(state)
+        state = torch.as_tensor(state, dtype=torch.float32)
         action, dist = self.policy_network.forward(state)
         selected_action = action if is_train else dist.mean
         if is_train:
@@ -75,10 +75,11 @@ class Agent:
 
     def update(self) -> Tuple[float, float]:
         state, log_prob, next_state, reward, done = self.transition
-        next_state = torch.FloatTensor(next_state)
+        next_state = torch.as_tensor(next_state, dtype=torch.float32)
+        done = torch.as_tensor(done, dtype=torch.bool)
+        reward = torch.as_tensor(reward, dtype=torch.float32)
         q_pred = self.value_network(state)
-        q_target = reward + self.gamma * self.value_network(next_state) * \
-            (1 - done)
+        q_target = reward + self.gamma * self.value_network(next_state) * ~done
         value_loss = F.smooth_l1_loss(q_pred, q_target.detach())
 
         self.value_network.optimizer.zero_grad()
@@ -117,10 +118,26 @@ class Agent:
                   f"{total_p_loss}, Value Loss: {total_v_loss}")
         torch.save(self.policy_network.state_dict(), "policy network.pth")
         torch.save(self.value_network.state_dict(), "value network.pth")
+        print("Model saved")
 
 
 if __name__ == "__main__":
-    env = gym.make("Pendulum-v1")
+    env = gym.make("Pendulum-v0")
     agent = Agent(env.observation_space.shape[0], env.action_space.shape[0],
                   1e-4, 1e-3, 0.9, 1e-2)
-    agent.train(env, 2000)
+    agent.train(env, 3000)
+
+    # Test agent
+
+    # agent.policy_network.load_state_dict(torch.load("policy network.pth"))
+    # agent.value_network.load_state_dict(torch.load("value network.pth"))
+    # state = env.reset()
+    # score = 0.0
+    # done = False
+    # while not done:
+    #     env.render()
+    #     action = agent.choose_action(state, False)
+    #     state, reward, done, _ = env.step(action)
+    #     score += reward
+    # print(score)
+    # env.close()
