@@ -122,7 +122,7 @@ class Agent:
 
 
 if __name__ == "__main__":
-    env = gym.make("Pendulum-v0")
+    env = gym.make("Pendulum-v1")
     agent = Agent(env.observation_space.shape[0], env.action_space.shape[0],
                   1e-4, 1e-3, 0.9, 1e-2)
     agent.train(env, 3000)
