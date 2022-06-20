@@ -1,7 +1,8 @@
 from typing import Tuple
-from torch.distributions import Categorical
+from torch.distributions import Normal
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import gym
@@ -17,35 +18,34 @@ class Policy_Network(nn.Module):
                  learning_rate: float) -> None:
         super(Policy_Network, self).__init__()
         self.layers = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 64),
             nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, output_size),
-            nn.Softmax(dim=-1)
+            nn.Linear(64, 64),
+            nn.ReLU()
         )
-        uniform_init(self.layers[6])
+        self.mean_layer = nn.Linear(64, output_size)
+        self.std_layer = nn.Linear(64, output_size)
+        uniform_init(self.mean_layer)
+        uniform_init(self.std_layer)
         self.optimizer = optim.RMSprop(self.parameters(), learning_rate)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor]:
-        return self.layers(x)
+    def forward(self, x: torch.Tensor
+                ) -> Tuple[torch.distributions.Distribution]:
+        mean = torch.tanh(self.mean_layer(self.layers(x))) * 2
+        log_std = F.softplus(self.std_layer(self.layers(x)))
+        std = torch.exp(log_std)
+        return Normal(mean, std)
 
 
 class Value_Network(nn.Module):
     def __init__(self, input_size: int, learning_rate: float):
         super(Value_Network, self).__init__()
         self.layers = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 64),
             nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, 1),
+            nn.Linear(64, 1),
         )
-        uniform_init(self.layers[6])
+        uniform_init(self.layers[2])
         self.optimizer = optim.RMSprop(self.parameters(), learning_rate)
         self.loss = nn.SmoothL1Loss()
 
@@ -64,18 +64,16 @@ class Agent:
         self.gamma = gamma
         self.entropy_weight = entropy_weight
 
-    def choose_action(self, state: np.ndarray) -> int:
+    def choose_action(self, state: np.ndarray, is_train: bool) -> np.ndarray:
         state = torch.as_tensor(state, dtype=torch.float32)
-        action_probs = Categorical(self.policy_network.forward(state))
-        action = action_probs.sample()
-        entropy = action_probs.entropy()
-        self.transition.extend([state, action_probs.log_prob(action), entropy])
-        return action.detach().item()
-
-    def choose_action_test(self, state: np.ndarray) -> int:
-        return self.policy_network.forward(
-            torch.as_tensor(state, dtype=torch.float32)
-        ).argmax().detach().item()
+        action_dist = self.policy_network.forward(state)
+        selected_action = action_dist.sample() if is_train else \
+            action_dist.mean
+        if is_train:
+            entropy = action_dist.entropy()
+            self.transition.extend([
+                state, action_dist.log_prob(selected_action), entropy])
+        return selected_action.clamp(-2.0, 2.0).detach().numpy()
 
     def store_info(self, next_state: np.ndarray, reward: float, done: bool
                    ) -> None:
@@ -87,7 +85,8 @@ class Agent:
 
         next_state = torch.as_tensor(next_state, dtype=torch.float32)
         q_pred = self.value_network.forward(state)
-        q_target = reward + self.gamma * self.value_network(next_state) * ~done
+        q_target = reward + self.gamma * self.value_network.forward(
+            next_state) * ~torch.as_tensor(done, dtype=torch.bool)
         value_loss = self.value_network.loss(q_pred, q_target.detach())
 
         self.value_network.optimizer.zero_grad()
@@ -95,7 +94,7 @@ class Agent:
         self.value_network.optimizer.step()
 
         advantage = (q_target - q_pred).detach()
-        policy_loss = -(advantage * log_prob + self.entropy_weight * entropy)
+        policy_loss = -(log_prob * advantage + self.entropy_weight * entropy)
 
         self.policy_network.optimizer.zero_grad()
         policy_loss.backward()
@@ -111,7 +110,7 @@ class Agent:
             score = 0.0
             done = False
             while not done:
-                action = self.choose_action(state)
+                action = self.choose_action(state, True)
                 next_state, reward, done, _ = env.step(action)
                 self.store_info(next_state, reward, done)
                 policy_loss, value_loss = self.update()
@@ -127,7 +126,7 @@ class Agent:
 
 
 if __name__ == "__main__":
-    env = gym.make("LunarLander-v2")
-    agent = Agent(env.observation_space.shape[0], env.action_space.n,
-                  1e-4, 1e-4, 0.99, 1e-2)
+    env = gym.make("Pendulum-v1")
+    agent = Agent(env.observation_space.shape[0], env.action_space.shape[0],
+                  0.0001, 0.001, 0.99, 0.01)
     agent.train(env, 3000)
