@@ -1,44 +1,41 @@
 from typing import Tuple
-import gym
+from torch.distributions import Categorical
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import gym
+torch.set_anomaly_enabled(True)
 
 
-class PolicyNetwork(nn.Module):
-    def __init__(
-        self,
-        input_size: int,
-        output_size: int,
-        learning_rate: float
-    ) -> None:
-        super(PolicyNetwork, self).__init__()
+class Policy_Network(nn.Module):
+    def __init__(self, input_size: int, output_size: int, lr: float) -> None:
+        super(Policy_Network, self).__init__()
         self.layers = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 32),
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.Linear(32, 32),
             nn.ReLU(),
-            nn.Linear(128, output_size),
+            nn.Linear(32, output_size),
             nn.Softmax(dim=-1)
         )
-        self.optimizer = optim.RMSprop(self.parameters(), learning_rate)
+        self.optimizer = optim.RMSprop(self.parameters(), lr)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layers(x)
 
 
-class ValueNetwork(nn.Module):
-    def __init__(self, input_size: int, learning_rate: float) -> None:
-        super(ValueNetwork, self).__init__()
+class Value_Network(nn.Module):
+    def __init__(self, input_size: int, lr: float) -> None:
+        super(Value_Network, self).__init__()
         self.layers = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 32),
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.Linear(32, 32),
             nn.ReLU(),
-            nn.Linear(128, 1)
+            nn.Linear(32, 1)
         )
-        self.optimizer = optim.RMSprop(self.parameters(), learning_rate)
+        self.optimizer = optim.RMSprop(self.parameters(), lr)
         self.loss = nn.MSELoss()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -50,93 +47,87 @@ class Agent:
         self,
         input_size: int,
         output_size: int,
-        policy_network_learning_rate: float,
-        value_network_learning_rate: float,
-        gamma: float
+        policy_lr: float,
+        value_lr: float,
+        gamma: float,
     ) -> None:
-        self.policy_network = PolicyNetwork(input_size, output_size,
-                                            policy_network_learning_rate)
-        self.value_network = ValueNetwork(input_size,
-                                          value_network_learning_rate)
+        self.policy_network = Policy_Network(input_size, output_size,
+                                             policy_lr)
+        self.value_network = Value_Network(input_size, value_lr)
         self.gamma = gamma
         self.state_memory = list()
-        self.action_memory = list()
+        self.log_prob_memory = list()
         self.reward_memory = list()
-
-    def reset_memory(self) -> None:
-        self.state_memory.clear()
-        self.action_memory.clear()
-        self.reward_memory.clear()
+        self.cache = torch.as_tensor(1 / np.log(output_size),
+                                     dtype=torch.float32)
 
     def choose_action_train(self, state: np.ndarray) -> int:
-        action_probs = torch.distributions.Categorical(
-            self.policy_network.forward(
-                torch.as_tensor(state, dtype=torch.float32)))
-        action = action_probs.sample()
-        self.action_memory.append(action_probs.log_prob(action))
-        return action.item()
+        self.state_memory.append(state)
+        state = torch.as_tensor(state, dtype=torch.float32)
+        action_prob_dist = Categorical(self.policy_network.forward(state))
+        action = action_prob_dist.sample()
+        log_prob = action_prob_dist.log_prob(action) * self.cache
+        self.log_prob_memory.append(log_prob)
+        return action.detach().item()
 
     def choose_action_test(self, state: np.ndarray) -> int:
         return self.policy_network.forward(
-            torch.as_tensor(state, dtype=torch.float32)).argmax().item()
+            torch.as_tensor(state, dtype=torch.float32)
+        ).detach().argmax().item()
 
-    def train(self) -> Tuple[float, float]:
+    def store_reward(self, reward: float) -> None:
+        self.reward_memory.append(reward)
+
+    def update(self) -> Tuple[float, float]:
         self.policy_network.optimizer.zero_grad()
         self.value_network.optimizer.zero_grad()
 
         T = len(self.reward_memory)
-        g = np.zeros(T, dtype=np.float32)
-        g_sum = 0.0
-
+        returns = torch.zeros(T, dtype=torch.float32)
+        returns_sum = 0.0
         for i in range(T - 1, -1, -1):
-            g_sum = self.reward_memory[i] + self.gamma * g_sum
-            g[i] = g_sum
+            returns_sum = self.reward_memory[i] + self.gamma * returns_sum
+            returns[i] = returns_sum
 
-        b = self.value_network.forward(torch.as_tensor(
-            np.array(self.state_memory), dtype=torch.float32)).view(T)
-        g = torch.as_tensor(g, dtype=torch.float32)
-
-        with torch.no_grad():
-            advantage_values = g - b
-
-        policy_network_loss = 0.0
-        for advantage_value, log_prob in zip(advantage_values,
-                                             self.action_memory):
-            policy_network_loss += -log_prob * advantage_value
-        policy_network_loss.backward()
-        self.policy_network.optimizer.step()
-
-        value_network_loss = self.value_network.loss(b, g)
-        value_network_loss.backward()
+        state_values = self.value_network.forward(
+            torch.as_tensor(np.array(self.state_memory), dtype=torch.float32)
+        ).view(T)
+        value_loss = self.value_network.loss(state_values, returns)
+        value_loss.backward()
         self.value_network.optimizer.step()
 
-        self.reset_memory()
+        policy_loss = torch.tensor(0.0, dtype=torch.float32)
+        for return_, state_value, log_prob in zip(returns, state_values,
+                                                  self.log_prob_memory):
+            policy_loss -= (log_prob * (return_ - state_value).detach())
+        policy_loss.backward()
+        self.policy_network.optimizer.step()
 
-        return policy_network_loss.item(), value_network_loss.item()
+        self.state_memory.clear()
+        self.log_prob_memory.clear()
+        self.reward_memory.clear()
+
+        return policy_loss.item(), value_loss.item()
+
+    def train(self, env: gym.Env, iteration: int) -> None:
+        for i in range(iteration):
+            state = env.reset()
+            score = 0.0
+            done = False
+            while not done:
+                action = self.choose_action_train(state)
+                state, reward, done, _ = env.step(action)
+                self.store_reward(reward)
+                score += reward
+            policy_loss, value_loss = self.update()
+            print(f"Iteration: {i + 1}, Score: {score}, Policy Loss: "
+                  f"{policy_loss}, Value Loss: {value_loss}")
 
 
 if __name__ == "__main__":
     env = gym.make("CartPole-v1")
-    agent = Agent(env.observation_space.shape[0], env.action_space.n, 0.001,
-                  0.001, 0.99)
-
-    iteration = 1000
-    for i in range(iteration):
-        state = env.reset()
-        done = False
-        score = 0.0
-        while not done:
-            action = agent.choose_action_train(state)
-            agent.state_memory.append(state)
-            state, reward, done, _ = env.step(action)
-            agent.reward_memory.append(reward)
-            score += reward
-        policy_network_loss, value_network_loss = agent.train()
-        print(f"Iteration: {i + 1}, Score: {score}, Policy Network Loss: "
-              f"{policy_network_loss}, Value Network Loss: "
-              f"{value_network_loss}")
-
-    torch.save(agent.policy_network.state_dict(),
-               "REINFORCE cartpole policy network.pt")
-    torch.save(agent.value_network.state_dict(),
-               "REINFORCE cartpole value network.pt")
+    agent = Agent(
+        env.observation_space.shape[0], env.action_space.n, 0.001, 0.001,
+        0.99
+    )
+    agent.train(env, 1000)
