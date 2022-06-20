@@ -31,8 +31,9 @@ class Policy_Network(nn.Module):
 
     def forward(self, x: torch.Tensor
                 ) -> Tuple[torch.distributions.Distribution]:
-        mean = torch.tanh(self.mean_layer(self.layers(x))) * 2
-        log_std = F.softplus(self.std_layer(self.layers(x)))
+        x = self.layers(x)
+        mean = torch.tanh(self.mean_layer(x)) * 2
+        log_std = F.softplus(self.std_layer(x))
         std = torch.exp(log_std)
         return Normal(mean, std)
 
@@ -63,7 +64,6 @@ class Agent:
         self.transition = list()
         self.gamma = gamma
         self.entropy_weight = entropy_weight
-        self.cache = 1 / np.log(output_size)
 
     def choose_action(self, state: np.ndarray, is_train: bool) -> np.ndarray:
         state = torch.as_tensor(state, dtype=torch.float32)
@@ -71,10 +71,10 @@ class Agent:
         selected_action = action_dist.sample() if is_train else \
             action_dist.mean
         if is_train:
-            entropy = action_dist.entropy() * self.cache
+            entropy = action_dist.entropy()
             self.transition.extend([
                 state,
-                action_dist.log_prob(selected_action).sum(dim=-1) * self.cache,
+                action_dist.log_prob(selected_action).sum(dim=-1),
                 entropy])
         return selected_action.clamp(-2.0, 2.0).detach().numpy()
 
@@ -97,7 +97,8 @@ class Agent:
         self.value_network.optimizer.step()
 
         advantage = (q_target - q_pred).detach()
-        policy_loss = -(log_prob * advantage + self.entropy_weight * entropy)
+        policy_loss = -log_prob * advantage
+        policy_loss += self.entropy_weight * -log_prob
 
         self.policy_network.optimizer.zero_grad()
         policy_loss.backward()
