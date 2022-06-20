@@ -63,6 +63,7 @@ class Agent:
         self.transition = list()
         self.gamma = gamma
         self.entropy_weight = entropy_weight
+        self.cache = 1 / np.log(output_size)
 
     def choose_action(self, state: np.ndarray, is_train: bool) -> np.ndarray:
         state = torch.as_tensor(state, dtype=torch.float32)
@@ -70,9 +71,10 @@ class Agent:
         selected_action = action_dist.sample() if is_train else \
             action_dist.mean
         if is_train:
-            entropy = action_dist.entropy()
+            entropy = action_dist.entropy() * self.cache
             self.transition.extend([
-                state, action_dist.log_prob(selected_action), entropy])
+                state, action_dist.log_prob(selected_action) * self.cache,
+                entropy])
         return selected_action.clamp(-2.0, 2.0).detach().numpy()
 
     def store_info(self, next_state: np.ndarray, reward: float, done: bool
