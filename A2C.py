@@ -73,7 +73,8 @@ class Agent:
         if is_train:
             entropy = action_dist.entropy() * self.cache
             self.transition.extend([
-                state, action_dist.log_prob(selected_action) * self.cache,
+                state,
+                action_dist.log_prob(selected_action).sum(dim=-1) * self.cache,
                 entropy])
         return selected_action.clamp(-2.0, 2.0).detach().numpy()
 
