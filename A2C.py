@@ -71,7 +71,8 @@ class Agent:
         selected_action = action if is_train else dist.mean
         if is_train:
             log_prob = dist.log_prob(selected_action).sum(dim=-1)
-            self.transition.extend([state, log_prob])
+            entropy = dist.entropy()
+            self.transition.extend([state, log_prob, entropy])
         return selected_action.clamp(-2.0, 2.0).detach().numpy()
 
     def store_info(self, next_state: np.ndarray, reward: float, done: bool
@@ -79,7 +80,7 @@ class Agent:
         self.transition.extend([next_state, reward, done])
 
     def update(self) -> Tuple[float, float]:
-        state, log_prob, next_state, reward, done = self.transition
+        state, log_prob, entropy, next_state, reward, done = self.transition
         self.transition.clear()
 
         next_state = torch.as_tensor(next_state, dtype=torch.float32)
@@ -93,8 +94,7 @@ class Agent:
         self.value_network.optimizer.step()
 
         advantage = (q_target - q_pred).detach()
-        policy_loss = -advantage * log_prob
-        policy_loss += self.entropy_weight * -log_prob
+        policy_loss = -(advantage * log_prob + self.entropy_weight * entropy)
 
         self.policy_network.optimizer.zero_grad()
         policy_loss.backward()
