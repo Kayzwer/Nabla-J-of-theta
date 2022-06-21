@@ -18,33 +18,33 @@ class Policy_Network(nn.Module):
                  learning_rate: float) -> None:
         super(Policy_Network, self).__init__()
         self.layers = nn.Sequential(
-            nn.Linear(input_size, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(input_size, 128),
             nn.ReLU()
         )
-        self.mean_layer = nn.Linear(64, output_size)
-        self.std_layer = nn.Linear(64, output_size)
+        self.mean_layer = nn.Linear(128, output_size)
+        self.std_layer = nn.Linear(128, output_size)
         uniform_init(self.mean_layer)
         uniform_init(self.std_layer)
         self.optimizer = optim.RMSprop(self.parameters(), learning_rate)
 
     def forward(self, x: torch.Tensor
-                ) -> Tuple[torch.distributions.Distribution]:
+                ) -> Tuple[torch.Tensor, torch.distributions.Distribution]:
         x = self.layers(x)
         mean = torch.tanh(self.mean_layer(x)) * 2
         log_std = F.softplus(self.std_layer(x))
         std = torch.exp(log_std)
-        return Normal(mean, std)
+        dist = Normal(mean, std)
+        action = dist.sample()
+        return action, dist
 
 
 class Value_Network(nn.Module):
     def __init__(self, input_size: int, learning_rate: float):
         super(Value_Network, self).__init__()
         self.layers = nn.Sequential(
-            nn.Linear(input_size, 64),
+            nn.Linear(input_size, 128),
             nn.ReLU(),
-            nn.Linear(64, 1),
+            nn.Linear(128, 1),
         )
         uniform_init(self.layers[2])
         self.optimizer = optim.RMSprop(self.parameters(), learning_rate)
@@ -67,15 +67,11 @@ class Agent:
 
     def choose_action(self, state: np.ndarray, is_train: bool) -> np.ndarray:
         state = torch.as_tensor(state, dtype=torch.float32)
-        action_dist = self.policy_network.forward(state)
-        selected_action = action_dist.sample() if is_train else \
-            action_dist.mean
+        action, dist = self.policy_network.forward(state)
+        selected_action = action if is_train else dist.mean
         if is_train:
-            entropy = action_dist.entropy()
-            self.transition.extend([
-                state,
-                action_dist.log_prob(selected_action).sum(dim=-1),
-                entropy])
+            log_prob = dist.log_prob(selected_action).sum(dim=-1)
+            self.transition.extend([state, log_prob])
         return selected_action.clamp(-2.0, 2.0).detach().numpy()
 
     def store_info(self, next_state: np.ndarray, reward: float, done: bool
@@ -83,7 +79,7 @@ class Agent:
         self.transition.extend([next_state, reward, done])
 
     def update(self) -> Tuple[float, float]:
-        state, log_prob, entropy, next_state, reward, done = self.transition
+        state, log_prob, next_state, reward, done = self.transition
         self.transition.clear()
 
         next_state = torch.as_tensor(next_state, dtype=torch.float32)
@@ -97,7 +93,7 @@ class Agent:
         self.value_network.optimizer.step()
 
         advantage = (q_target - q_pred).detach()
-        policy_loss = -log_prob * advantage
+        policy_loss = -advantage * log_prob
         policy_loss += self.entropy_weight * -log_prob
 
         self.policy_network.optimizer.zero_grad()
@@ -132,5 +128,16 @@ class Agent:
 if __name__ == "__main__":
     env = gym.make("Pendulum-v1")
     agent = Agent(env.observation_space.shape[0], env.action_space.shape[0],
-                  0.0001, 0.001, 0.99, 0.01)
-    agent.train(env, 3000)
+                  1e-4, 1e-3, 0.75, 0.05)
+    agent.train(env, 1000)
+    # agent.policy_network.load_state_dict(torch.load("policy network.pth"))
+    # agent.value_network.load_state_dict(torch.load("value network.pth"))
+    # score = 0.0
+    # done = False
+    # state = env.reset()
+    # while not done:
+    #     env.render()
+    #     action = agent.choose_action(state, False)
+    #     state, reward, done, _ = env.step(action)
+    #     score += reward
+    # print(f"Score: {score}")
