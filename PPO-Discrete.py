@@ -229,12 +229,12 @@ if __name__ == "__main__":
     agent = Agent(
         input_size=env.observation_space.shape[0],
         output_size=env.action_space.n,
-        policy_lr=0.001,
-        value_lr=0.001,
+        policy_lr=0.0001,
+        value_lr=0.0005,
         gamma=0.99,
         tau=0.85,
         epsilon=0.2,
-        epoch=16,
+        epoch=2,
         rollout_len=2048,
         batch_size=32,
         entropy_weight=0.005
