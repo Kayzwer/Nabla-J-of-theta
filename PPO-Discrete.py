@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from typing import Tuple, List
-from torch.distributions import Normal
+from torch.distributions import Categorical
 from collections import deque
 
 
@@ -47,55 +47,25 @@ def ppo_iter(
                 log_probs[idxs], returns[idxs], advantages[idxs]
 
 
-class Action_Normalizer(gym.ActionWrapper):
-    def action(self, action: np.ndarray) -> np.ndarray:
-        low = self.action_space.low
-        high = self.action_space.high
-        scale_factor = (high - low) / 2
-        reloc_factor = high - scale_factor
-        action = action * scale_factor + reloc_factor
-        action = np.clip(action, low, high)
-        return action
-
-    def reverse_action(self, action: np.ndarray) -> np.ndarray:
-        low = self.action_space.low
-        high = self.action_space.high
-        scale_factor = (high - low) / 2
-        reloc_factor = high - scale_factor
-        action = (action - reloc_factor) / scale_factor
-        action = np.clip(action, -1.0, 1.0)
-        return action
-
-
 class Policy_Network(nn.Module):
     def __init__(
         self,
         input_size: int,
         output_size: int,
-        min_log_std: int,
-        max_log_std: int,
         lr: float
     ) -> None:
         super(Policy_Network, self).__init__()
-        self._diff_cache = max_log_std - min_log_std
-        self.min_log_std = min_log_std
-
-        self.feature_layers = nn.Sequential(
+        self.layers = nn.Sequential(
             nn.Linear(input_size, 128),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Linear(128, output_size),
+            nn.Softmax(dim=-1)
         )
-        self.mean_layer = nn.Linear(128, output_size)
-        self.log_std_layer = nn.Linear(128, output_size)
         self.optimizer = optim.RMSprop(self.parameters(), lr)
 
     def forward(self, x: torch.Tensor) -> Tuple[
             torch.Tensor, torch.distributions.Distribution]:
-        feature = self.feature_layers(x)
-        mean = torch.tanh(self.mean_layer(feature))
-        log_std = torch.tanh(self.log_std_layer(feature))
-        std = torch.exp(self.min_log_std + 0.5 * self._diff_cache *
-                        (log_std + 1))
-        dist = Normal(mean, std)
+        dist = Categorical(self.layers(x))
         action = dist.sample()
         return action, dist
 
@@ -122,8 +92,6 @@ class Agent:
         output_size: int,
         policy_lr: float,
         value_lr: float,
-        min_log_std: float,
-        max_log_std: float,
         gamma: float,
         tau: float,
         epsilon: float,
@@ -132,8 +100,8 @@ class Agent:
         batch_size: int,
         entropy_weight: int
     ) -> None:
-        self.policy_network = Policy_Network(
-            input_size, output_size, min_log_std, max_log_std, policy_lr)
+        self.policy_network = Policy_Network(input_size, output_size,
+                                             policy_lr)
         self.value_network = Value_Network(input_size, value_lr)
         self.input_size = input_size
         self.gamma = gamma
@@ -144,6 +112,7 @@ class Agent:
         self.rollout_len = rollout_len
         self.batch_size = batch_size
         self.entropy_weight = entropy_weight
+        self.log_cache = 1 / np.log(output_size)
 
         self.state_memory = list()
         self.action_memory = list()
@@ -160,17 +129,18 @@ class Agent:
         self.done_memory.clear()
         self.log_prob_memory.clear()
 
-    def choose_action(self, state: np.ndarray, is_train: bool) -> np.ndarray:
+    def choose_action(self, state: np.ndarray, is_train: bool) -> int:
         state = torch.as_tensor(state, dtype=torch.float32)
         action, dist = self.policy_network.forward(state)
-        selected_action = action if is_train else dist.mean
+        selected_action = action if is_train else dist.mode
         if is_train:
             value = self.value_network.forward(state)
             self.state_memory.append(state)
             self.action_memory.append(selected_action)
             self.value_memory.append(value)
-            self.log_prob_memory.append(dist.log_prob(selected_action))
-        return selected_action.detach().numpy()[0]
+            self.log_prob_memory.append(dist.log_prob(selected_action) *
+                                        self.log_cache)
+        return selected_action.detach().item()
 
     def step(self, env: gym.Env, action: np.ndarray) -> Tuple[
             np.ndarray, np.float32, bool]:
@@ -204,7 +174,7 @@ class Agent:
             ppo_iter(self.epoch, self.batch_size, states, actions, values,
                      log_probs, returns, advantages):
             _, dist = self.policy_network.forward(state)
-            log_prob = dist.log_prob(action)
+            log_prob = dist.log_prob(action) * self.log_cache
             ratio = (log_prob - old_log_prob).exp()
 
             surr_loss = ratio * advantage
@@ -255,20 +225,18 @@ class Agent:
 
 
 if __name__ == "__main__":
-    env = Action_Normalizer(gym.make("Pendulum-v1"))
+    env = gym.make("LunarLander-v2")
     agent = Agent(
         input_size=env.observation_space.shape[0],
-        output_size=env.action_space.shape[0],
+        output_size=env.action_space.n,
         policy_lr=0.001,
         value_lr=0.005,
-        min_log_std=-20.0,
-        max_log_std=0.0,
-        gamma=0.9,
+        gamma=0.5,
         tau=0.8,
         epsilon=0.2,
-        epoch=64,
-        rollout_len=2048,
-        batch_size=64,
+        epoch=16,
+        rollout_len=4096,
+        batch_size=128,
         entropy_weight=0.005
     )
     agent.train(env, 1000)
