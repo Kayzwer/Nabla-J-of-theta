@@ -218,7 +218,7 @@ class Agent:
                     score = 0.0
                     i += 1
             policy_loss, value_loss = self.update(next_state)
-            print(f"Iteration: {i + 1}, Score: {score}, Policy Loss: "
+            print(f"Iteration: {i + 1}, Policy Loss: "
                   f"{policy_loss}, Value Loss: {value_loss}")
         torch.save(self.policy_network.state_dict(), "policy network.pth")
         torch.save(self.value_network.state_dict(), "value network.pth")
@@ -230,13 +230,13 @@ if __name__ == "__main__":
         input_size=env.observation_space.shape[0],
         output_size=env.action_space.n,
         policy_lr=0.001,
-        value_lr=0.005,
-        gamma=0.5,
-        tau=0.8,
+        value_lr=0.001,
+        gamma=0.99,
+        tau=0.85,
         epsilon=0.2,
         epoch=16,
-        rollout_len=4096,
-        batch_size=128,
+        rollout_len=2048,
+        batch_size=32,
         entropy_weight=0.005
     )
-    agent.train(env, 1000)
+    agent.train(env, 10000)
