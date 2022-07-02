@@ -241,7 +241,8 @@ class Agent:
         return total_policy_loss.item(), total_value_loss.item()
 
     def train(self, env: gym.Env, iteration: int) -> None:
-        for i in range(iteration):
+        i = 0
+        while i < iteration:
             state = env.reset()
             score = 0.0
             for _ in range(self.rollout_len):
@@ -259,6 +260,7 @@ class Agent:
 
                 if done:
                     print(f"Iteration: {i + 1}, Score: {score}")
+                    i + 1
                     env.reset()
                     score = 0.0
             ph_policy_loss, ph_value_loss = self.policy_phase_update(
