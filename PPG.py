@@ -260,7 +260,7 @@ class Agent:
 
                 if done:
                     print(f"Iteration: {i + 1}, Score: {score}")
-                    i + 1
+                    i += 1
                     env.reset()
                     score = 0.0
             ph_policy_loss, ph_value_loss = self.policy_phase_update(
