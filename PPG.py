@@ -270,12 +270,9 @@ class Agent:
                   f" {ph_policy_loss}, Value Loss: {ph_value_loss}")
             print(f"Value Phase --- Iteration: {i + 1}, Policy Loss: "
                   f"{vh_policy_loss}, Value Loss: {vh_value_loss}")
-            if (i + 1) % 50 == 0:
-                torch.save(self.policy_network.state_dict(),
-                           "policy network.pth")
-                torch.save(self.value_network.state_dict(),
-                           "value network.pth")
-                print("Model Saved")
+            torch.save(self.policy_network.state_dict(), "policy network.pth")
+            torch.save(self.value_network.state_dict(), "value network.pth")
+            print("Model Saved")
 
 
 if __name__ == "__main__":
