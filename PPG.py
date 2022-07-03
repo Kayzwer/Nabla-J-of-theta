@@ -35,16 +35,16 @@ class Policy_Network(nn.Module):
     def __init__(self, input_size: int, output_size: int, lr: float) -> None:
         super(Policy_Network, self).__init__()
         self.feature_layers = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 32),
             nn.Tanh(),
-            nn.Linear(128, 128),
+            nn.Linear(32, 32),
             nn.Tanh()
         )
         self.policy_layers = nn.Sequential(
-            nn.Linear(128, output_size),
+            nn.Linear(32, output_size),
             nn.Softmax(dim=-1)
         )
-        self.value_layer = nn.Linear(128, 1)
+        self.value_layer = nn.Linear(32, 1)
         self.optimizer = optim.RMSprop(self.parameters(), lr)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -56,11 +56,11 @@ class Value_Network(nn.Module):
     def __init__(self, input_size: int, lr: float) -> None:
         super(Value_Network, self).__init__()
         self.layers = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 256),
             nn.Tanh(),
-            nn.Linear(128, 128),
+            nn.Linear(256, 256),
             nn.Tanh(),
-            nn.Linear(128, 1)
+            nn.Linear(256, 1)
         )
         self.optimizer = optim.RMSprop(self.parameters(), lr)
 
@@ -200,7 +200,7 @@ class Agent:
         self.memories.clear()
         return total_policy_loss.item(), total_value_loss.item()
 
-    def value_phase_update(self) -> Tuple[float, float]:
+    def auxiliary_phase_update(self) -> Tuple[float, float]:
         states = []
         rewards = []
         old_values = []
@@ -265,7 +265,7 @@ class Agent:
                     score = 0.0
             ph_policy_loss, ph_value_loss = self.policy_phase_update(
                 next_state)
-            vh_policy_loss, vh_value_loss = self.value_phase_update()
+            vh_policy_loss, vh_value_loss = self.auxiliary_phase_update()
             print(f"Policy Phase --- Iteration: {i + 1}, Policy Loss:"
                   f" {ph_policy_loss}, Value Loss: {ph_value_loss}")
             print(f"Value Phase --- Iteration: {i + 1}, Policy Loss: "
@@ -282,6 +282,6 @@ if __name__ == "__main__":
     env = gym.make("LunarLander-v2")
     agent = Agent(
         env.observation_space.shape[0], env.action_space.n, 0.0005, 0.0005,
-        500, 1, 6, 16, 0.95, 0.99, 0.01, 0.2, 0.4
+        500, 1, 6, 64, 0.95, 0.99, 0.01, 0.2, 0.4
     )
     agent.train(env, 1000)
