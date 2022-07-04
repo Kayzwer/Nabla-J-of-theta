@@ -89,6 +89,7 @@ class Agent:
         self.policy_network = Policy_Network(input_size, output_size,
                                              policy_lr)
         self.value_network = Value_Network(input_size, value_lr)
+        self.output_size = output_size
         self.rollout_len = rollout_len
         self.epoch = epoch
         self.aux_epoch = aux_epoch
@@ -185,7 +186,7 @@ class Agent:
                 action_log_probs = dist.log_prob(actions) * self.log_cache
                 entropy = dist.entropy() * self.log_cache
 
-                ratios = (action_log_probs - old_log_probs).exp2()
+                ratios = self.output_size ** (action_log_probs - old_log_probs)
                 advantages = self.normalize(rewards - old_values.detach())
                 surr1 = ratios * advantages
                 surr2 = ratios.clamp(self.policy_clip_lower,
@@ -262,7 +263,7 @@ class Agent:
                 state = next_state
 
                 if done:
-                    if (i + 1) % 25 == 0:
+                    if (i + 1) % 5 == 0:
                         print(f"Iteration: {i + 1}, Score: {score}")
                     i += 1
                     env.reset()
