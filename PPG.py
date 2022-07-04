@@ -15,14 +15,14 @@ Aux_Memory = namedtuple('Memory', ['state', 'target_value', 'old_values'])
 
 
 class ExperienceDataset(Dataset):
-    def __init__(self, data):
+    def __init__(self, data) -> None:
         super().__init__()
         self.data = data
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.data[0])
 
-    def __getitem__(self, ind):
+    def __getitem__(self, ind: int) -> Tuple:
         return tuple(map(lambda t: t[ind], self.data))
 
 
@@ -83,7 +83,8 @@ class Agent:
         gamma: float,
         entropy_weight: float,
         policy_clip: float,
-        value_clip: float
+        value_clip: float,
+        aux_update: int
     ) -> None:
         self.policy_network = Policy_Network(input_size, output_size,
                                              policy_lr)
@@ -98,6 +99,7 @@ class Agent:
         self.policy_clip_upper = 1 + policy_clip
         self.policy_clip_lower = 1 - policy_clip
         self.value_clip = value_clip
+        self.aux_update = aux_update
         self.log_cache = 1 / np.log(output_size)
         self.memories = deque([])
         self.aux_memories = deque([])
@@ -142,7 +144,7 @@ class Agent:
         for memory in self.memories:
             states.append(memory.state)
             actions.append(torch.as_tensor(memory.action, dtype=torch.long))
-            old_log_probs.append(memory.action_log_prob)
+            old_log_probs.append(memory.action_log_prob * self.log_cache)
             rewards.append(memory.reward)
             dones.append(1 - memory.done)
             values.append(memory.value)
@@ -242,13 +244,14 @@ class Agent:
 
     def train(self, env: gym.Env, iteration: int) -> None:
         i = 0
+        j = 0
         while i < iteration:
             state = env.reset()
             score = 0.0
             for _ in range(self.rollout_len):
                 state = torch.as_tensor(state, dtype=torch.float32)
                 action, dist = self.choose_action(state, True)
-                action_log_prob = dist.log_prob(action) * self.log_cache
+                action_log_prob = dist.log_prob(action)
                 value = self.value_network.forward(state)
                 action = action.item()
                 next_state, reward, done, _ = env.step(action)
@@ -259,17 +262,20 @@ class Agent:
                 state = next_state
 
                 if done:
-                    print(f"Iteration: {i + 1}, Score: {score}")
+                    if (i + 1) % 25 == 0:
+                        print(f"Iteration: {i + 1}, Score: {score}")
                     i += 1
                     env.reset()
                     score = 0.0
             ph_policy_loss, ph_value_loss = self.policy_phase_update(
                 next_state)
-            vh_policy_loss, vh_value_loss = self.auxiliary_phase_update()
             print(f"Policy Phase --- Iteration: {i + 1}, Policy Loss:"
                   f" {ph_policy_loss}, Value Loss: {ph_value_loss}")
-            print(f"Value Phase --- Iteration: {i + 1}, Policy Loss: "
-                  f"{vh_policy_loss}, Value Loss: {vh_value_loss}")
+            j += 1
+            if j % self.aux_update == 0:
+                vh_policy_loss, vh_value_loss = self.auxiliary_phase_update()
+                print(f"Auxiliary Phase --- Iteration: {i + 1}, Policy Loss: "
+                      f"{vh_policy_loss}, Value Loss: {vh_value_loss}")
             torch.save(self.policy_network.state_dict(), "policy network.pth")
             torch.save(self.value_network.state_dict(), "value network.pth")
             print("Model Saved")
@@ -279,6 +285,6 @@ if __name__ == "__main__":
     env = gym.make("LunarLander-v2")
     agent = Agent(
         env.observation_space.shape[0], env.action_space.n, 0.0005, 0.0005,
-        500, 1, 6, 64, 0.95, 0.99, 0.01, 0.2, 0.4
+        5000, 1, 6, 64, 0.95, 0.99, 0.01, 0.2, 0.4, 32
     )
-    agent.train(env, 1000)
+    agent.train(env, 50000)
