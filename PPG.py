@@ -185,7 +185,7 @@ class Agent:
                 action_log_probs = dist.log_prob(actions) * self.log_cache
                 entropy = dist.entropy() * self.log_cache
 
-                ratios = (action_log_probs - old_log_probs).exp()
+                ratios = (action_log_probs - old_log_probs).exp2()
                 advantages = self.normalize(rewards - old_values.detach())
                 surr1 = ratios * advantages
                 surr2 = ratios.clamp(self.policy_clip_lower,
