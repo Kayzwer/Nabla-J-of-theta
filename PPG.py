@@ -82,6 +82,7 @@ class Agent:
         lamb: float,
         gamma: float,
         entropy_weight: float,
+        beta_clone: float,
         policy_clip: float,
         value_clip: float,
         aux_update: int
@@ -97,6 +98,7 @@ class Agent:
         self.lamb = lamb
         self.gamma = gamma
         self.entropy_weight = entropy_weight
+        self.beta_clone = beta_clone
         self.policy_clip_upper = 1 + policy_clip
         self.policy_clip_lower = 1 - policy_clip
         self.value_clip = value_clip
@@ -231,7 +233,7 @@ class Agent:
                                                old_values, self.value_clip)
                 kl_loss = F.kl_div(action_log_probs, old_action_probs,
                                    reduction='batchmean')
-                policy_loss = aux_loss + kl_loss
+                policy_loss = aux_loss + self.beta_clone * kl_loss
                 total_policy_loss += self.update_network(
                     self.policy_network.optimizer, policy_loss)
 
@@ -286,6 +288,6 @@ if __name__ == "__main__":
     env = gym.make("LunarLander-v2")
     agent = Agent(
         env.observation_space.shape[0], env.action_space.n, 0.0005, 0.0005,
-        5000, 1, 6, 64, 0.95, 0.99, 0.01, 0.2, 0.4, 32
+        65536, 2, 4, 64, 0.95, 0.99, 0.1, 0.5, 0.2, 0.4, 8
     )
     agent.train(env, 50000)
