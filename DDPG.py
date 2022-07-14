@@ -258,7 +258,7 @@ class Agent:
 
 
 if __name__ == "__main__":
-    env = gym.make("Pendulum-v1")
+    env = ActionNormalizer(gym.make("Pendulum-v1"))
     agent = Agent(
         env.observation_space.shape[0], env.action_space.shape[0], 3e-4, 3e-3,
         0.99, 5e-3, 100000, 128, 0.0, 1.0, 0.1, 10000
