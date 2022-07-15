@@ -219,7 +219,7 @@ class Agent:
         self.value_network.optimizer.step()
 
         policy_loss = -self.value_network.forward(
-            states, self.policy_network(states)).mean()
+            states, self.policy_network.forward(states)).mean()
         self.policy_network.optimizer.zero_grad()
         policy_loss.backward()
         self.policy_network.optimizer.step()
