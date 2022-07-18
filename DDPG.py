@@ -121,29 +121,19 @@ class ValueNetwork(nn.Module):
 
 
 class ActionNormalizer(gym.ActionWrapper):
+    def __init__(self, env: gym.Env) -> None:
+        super().__init__(env)
+        self.scale_factor = (self.action_space.high - self.action_space.low
+                             ) / 2.0
+        self.reloc_factor = self.action_space.high - self.scale_factor
+
     def action(self, action: np.ndarray) -> np.ndarray:
-        low = self.action_space.low
-        high = self.action_space.high
-
-        scale_factor = (high - low) / 2
-        reloc_factor = high - scale_factor
-
-        action = action * scale_factor + reloc_factor
-        action = np.clip(action, low, high)
-
-        return action
+        return np.clip(action * self.scale_factor + self.reloc_factor,
+                       self.action_space.low, self.action_space.high)
 
     def reverse_action(self, action: np.ndarray) -> np.ndarray:
-        low = self.action_space.low
-        high = self.action_space.high
-
-        scale_factor = (high - low) / 2
-        reloc_factor = high - scale_factor
-
-        action = (action - reloc_factor) / scale_factor
-        action = np.clip(action, -1.0, 1.0)
-
-        return action
+        return np.clip((action - self.reloc_factor) / self.scale_factor,
+                       -1.0, 1.0)
 
 
 class Agent:
