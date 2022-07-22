@@ -251,7 +251,8 @@ class Agent:
         vf_loss.backward()
         self.vf_optimizer.step()
 
-        return actor_loss.data, qf_loss.data, vf_loss.data, alpha_loss.data
+        return (actor_loss.item(), qf_loss.item(), vf_loss.item(),
+                alpha_loss.item())
 
     def train(self, env: gym.Env, episode: int, checkpoint: int) -> None:
         for i in range(episode):
