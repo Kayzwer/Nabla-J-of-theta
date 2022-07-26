@@ -104,6 +104,7 @@ class Agent:
                                              policy_lr)
         self.value_network = Value_Network(input_size, value_lr)
         self.input_size = input_size
+        self.output_size = torch.as_tensor(output_size, dtype=torch.float32)
         self.gamma = gamma
         self.tau = tau
         self.lower = 1 - epsilon
@@ -144,7 +145,7 @@ class Agent:
 
     def step(self, env: gym.Env, action: np.ndarray) -> Tuple[
             np.ndarray, np.float32, bool]:
-        next_state, reward, done, _ = env.step(action)
+        next_state, reward, done, _, _ = env.step(action)
         next_state = np.reshape(next_state, (1, -1)).astype(np.float32)
         self.reward_memory.append(
             torch.from_numpy(np.reshape(reward, (1, -1)).astype(np.float32)))
@@ -175,7 +176,7 @@ class Agent:
                      log_probs, returns, advantages):
             _, dist = self.policy_network.forward(state)
             log_prob = dist.log_prob(action) * self.log_cache
-            ratio = (log_prob - old_log_prob).exp()
+            ratio = torch.pow(self.output_size, log_prob - old_log_prob)
 
             surr_loss = ratio * advantage
             clipped_surr_loss = (
@@ -225,7 +226,7 @@ class Agent:
 
 
 if __name__ == "__main__":
-    env = gym.make("LunarLander-v2")
+    env = gym.make("LunarLander-v2", render_mode="human", new_step_api=True)
     agent = Agent(
         input_size=env.observation_space.shape[0],
         output_size=env.action_space.n,
@@ -234,8 +235,8 @@ if __name__ == "__main__":
         gamma=0.99,
         tau=0.85,
         epsilon=0.2,
-        epoch=2,
-        rollout_len=2048,
+        epoch=3,
+        rollout_len=4096,
         batch_size=32,
         entropy_weight=0.005
     )
